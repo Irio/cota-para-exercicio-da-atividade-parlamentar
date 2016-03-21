@@ -5,7 +5,10 @@ Definição do Dado
 txNomeParlamentar
 Nome Parlamentar
 Nome adotado pelo Parlamentar ao tomar posse do seu mandato. Compõe-se de dois elementos: um prenome e o nome; dois nomes; ou dois prenomes, salvo, a juízo do Presidente da Casa legislativa, que poderá alterar essa regra para que não ocorram confusões.
-ideCadastro 	Identificador Único do Parlamentar 	Número que identifica unicamente um deputado federal na CD.
+
+ideCadastro
+Identificador Único do Parlamentar
+Número que identifica unicamente um deputado federal na CD.
 
 nuCarteiraParlamentar
 Número da  Carteira Parlamentar
