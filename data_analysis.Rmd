@@ -1,38 +1,165 @@
 ---
-title: "Deputados"
+title: "Cota Para Exercício da Atividade Parlamentar"
 author: "Irio Musskopf"
 date: "March 20, 2016"
 output: html_document
 ---
 
+# Reimbursed expenses made by deputies
+
+## Setup environment
+```{r warning=FALSE}
+#install.packages(c("dplyr", "ggplot2", "plyr"))
+library(dplyr)
+library(ggplot2)
+library(plyr)
+library(scales)
+```
+
 ## Download dataset
 
-```{r eval=FALSE}
-# setwd(tempdir())
-setwd("~/Downloads")
-
-# url <- "http://www.camara.gov.br/cotas/AnoAtual.zip"
-url <- "http://cl.ly/0o023M340H1n/download/AnoAtual.zip"
-file_name <- "AnoAtual.xml"
-if(!file.exists(file_name)) {
-  zip_name <- "AnoAtual.zip"
-  if(!file.exists(zip_name))
-    download.file(url, zip_name, method = "curl")
-  unzip(zip_name)
-}
+```{r cache=TRUE}
+setwd("/Users/irio/Code/R/cota-para-exercicio-da-atividade-parlamentar")
+url <- "https://dl.dropboxusercontent.com/content_link/qduZUagnhcj25NDbcnIC4sJa3p4DJxgIlUhKVzSPX5poL9oDn9eeJRgXmdUYNMF3/file?dl=1"
+file.name <- "data/AnoAtual.csv"
+if(!file.exists(file.name))
+  download.file(url, file.name, method = "curl")
 ```
 
-Let's perform a convertion from XML to CSV so gets easier to handle the data.
-
-```{r engine="bash", eval=FALSE}
-# pip install xmlutils
-xml2csv --input AnoAtual.xml --output AnoAtual.csv --tag "DESPESA"
-```
+Load the dataset:
 
 ```{r}
-data <- read.csv("AnoAtual.csv")
+data <- read.csv("data/AnoAtual.csv")
 data <- data[!is.na(data$vlrDocumento), ]
+```
 
-data <- data[data$txNomeParlamentar == "TIRIRICA", ]
+## Overview
+
+How many expenses last year?
+
+```{r}
 nrow(data)
 ```
+
+How many deputies in the list?
+
+```{r}
+deputies <- unique(data$txNomeParlamentar)
+length(deputies)
+deputies
+```
+
+How many many distinct categories for expenses?
+
+```{r}
+categories <- sort(unique(as.character(data$txtDescricao[is.na(as.numeric(as.character(data$txtDescricao)))])))
+length(categories)
+categories
+```
+
+How much a deputy ask for reimbursement leveraging this quota?
+
+```{r}
+attributes <- c("txNomeParlamentar",
+                "vlrDocumento",
+                "sgUF",
+                "sgPartido")
+sorted.by.expenses <- ddply(data,
+                            attributes[!attributes %in% c("vlrDocumento")],
+                            summarize,
+                            vlrDocumento = sum(vlrDocumento / 12))
+sorted.by.expenses <- sorted.by.expenses[with(sorted.by.expenses, order(-vlrDocumento)), ]
+
+data.mean <- mean(sorted.by.expenses$vlrDocumento)
+ggplot(sorted.by.expenses) +
+    geom_histogram(aes(vlrDocumento), binwidth = 500) +
+    xlab("Monthly expenses (R$)") +
+    ylab("Deputies") +
+    scale_x_continuous(labels = comma) +
+    geom_vline(aes(xintercept = data.mean), size = 1) +
+    geom_vline(aes(xintercept = data.mean + -sd(vlrDocumento))) +
+    geom_vline(aes(xintercept = data.mean + sd(vlrDocumento)))
+```
+
+Who are the most from the quota?
+
+```{r}
+head(sorted.by.expenses[, attributes], 20)
+```
+
+It seems we have expenses from parties. Let's see.
+
+```{r}
+parties <- c("LIDERANÇA DO PSDB", "LIDERANÇA DO PT", "PDT", "SDD")
+data.from.parties <- data[data$txNomeParlamentar %in% parties, ]
+ddply(data.from.parties,
+      attributes[!attributes %in% c("vlrDocumento")],
+      summarize,
+      vlrDocumento = sum(vlrDocumento))
+```
+
+Some people don't know `vlrLiquido` should contain a number, not airports(?). Double-checked the XML and the mistake is already there, in the data provided by the government. Let's remove them from the dataset for now, checking who are the responsible for these entries.
+
+```{r}
+data$numericVlrLiquido <- as.numeric(as.character(data$vlrLiquido))
+data[is.na(data$numericVlrLiquido),
+     c("txNomeParlamentar", "nuLegislatura")]
+```
+
+## Fuel
+
+Let's see how our deputies are expending our money with fuel...
+
+```{r}
+sorted.by.expenses <- ddply(filter(data, txtDescricao == "COMBUSTÍVEIS E LUBRIFICANTES."),
+                            attributes[!attributes %in% c("vlrDocumento")],
+                            summarize,
+                            vlrDocumento = sum(vlrDocumento / 12))
+ggplot(sorted.by.expenses) +
+    geom_histogram(aes(vlrDocumento), binwidth = 50)
+```
+
+We can see that people are expending A LOT with fuel. The available subcategories:
+
+```{r}
+unique(filter(data, txtDescricao == "COMBUSTÍVEIS E LUBRIFICANTES.")[,
+     "txtDescricaoEspecificacao"])
+```
+
+Who are expending with aircrafts?
+
+```{r}
+aircraft.expenses <- filter(data,
+                            txtDescricao == "COMBUSTÍVEIS E LUBRIFICANTES.",
+                            txtDescricaoEspecificacao == "Aeronaves")
+
+ggplot(aircraft.expenses, aes(x = vlrDocumento)) +
+    geom_histogram(binwidth = 200)
+
+aircraft.expenses.summary <- ddply(aircraft.expenses,
+      attributes[!attributes %in% c("vlrDocumento")],
+      summarize,
+      aircraftExpenses = sum(vlrDocumento),
+      receipts = length(txNomeParlamentar))
+aircraft.expenses.summary[with(aircraft.expenses.summary, order(-aircraftExpenses)), ]
+```
+
+Do people expending with aircraft is expending more or less with flight tickets?
+
+```{r}
+flight.tickets <- filter(data,
+                         txtDescricao == "PASSAGENS AÉREAS" | txtDescricao == "Emissão Bilhete Aéreo")
+
+flight.tickets.summary <- ddply(flight.tickets,
+                       attributes[!attributes %in% c("vlrDocumento")],
+                       summarize,
+                       fuel = sum(vlrDocumento))
+
+aircraft.and.flight.tickets <- merge(flight.tickets.summary, filter(aircraft.expenses.summary, aircraftExpenses > 1000), by = "txNomeParlamentar", all = TRUE)
+aircraft.and.flight.tickets[is.na(aircraft.and.flight.tickets$aircraftExpenses), ]$aircraftExpenses <- 0
+aircraft.and.flight.tickets[is.na(aircraft.and.flight.tickets$fuel), ]$fuel <- 0
+
+cor(aircraft.and.flight.tickets$aircraftExpenses, aircraft.and.flight.tickets$fuel)
+```
+
+There's a considerable negative correlation between politians expending on aircraft fuel and flight tickets. Excellent my deputies!
